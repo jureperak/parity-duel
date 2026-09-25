@@ -3,10 +3,12 @@
 Classic odds-and-evens, live in a Teams meeting:
 
 1. One player takes **Even**, the other **Odd** (everyone else can watch).
-2. Both secretly type any positive number and click **Lock in**.
+2. Both secretly tap a number from **0 to 9** and click **Lock in**.
 3. When both are in, the numbers are revealed. The **sum** decides the winner:
    even sum → Even wins, odd sum → Odd wins.
-4. The winner gets a badge, the loser a consolation badge. **Play again** or **Swap sides**.
+4. The winner gets a badge, the loser a consolation badge. **Copy badge** puts the result
+   card on the clipboard as an image, ready to paste into a chat (phones get the share
+   sheet instead). **Play again** or **Swap sides**.
 
 State is synced with the [Live Share SDK](https://aka.ms/livesharedocs) (Fluid
 Framework), so there's no game server to run — Teams provides the relay inside meetings.
@@ -21,6 +23,7 @@ src/views.ts      rendering
 src/teams.ts      Teams SDK: context, theme, config page, meeting stage
 src/identity.ts   Teams name, profile photo, avatars
 src/badges.ts     badge art, titles and messages
+src/share.ts      "Copy badge": result card to PNG (clipboard, share sheet, download)
 appPackage/       Teams manifest + icons
 ```
 

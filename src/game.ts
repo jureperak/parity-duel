@@ -46,7 +46,9 @@ export type Outcome =
   | { kind: "void"; reason: "no-reveal" | "bad-reveal" };
 
 export const SIDES: readonly Side[] = ["even", "odd"];
-export const MAX_DIGITS = 9;
+/** Picks are single digits, like fingers in the hand game. */
+export const MIN_PICK = 0;
+export const MAX_PICK = 9;
 /** How long a player gets to reveal after both have committed. Honest clients reveal instantly. */
 export const REVEAL_TIMEOUT_MS = 15_000;
 
@@ -57,12 +59,12 @@ export function other(side: Side): Side {
   return side === "even" ? "odd" : "even";
 }
 
-/** Returns a positive integer, or null if the input isn't one. */
+/** Returns the digit 0-9, or null if the input isn't one. */
 export function parsePick(input: unknown): number | null {
-  const text = (typeof input === "number" ? String(input) : typeof input === "string" ? input : "").trim();
-  if (!new RegExp(`^\\d{1,${MAX_DIGITS}}$`).test(text)) return null;
-  const n = Number(text);
-  return n > 0 ? n : null;
+  const n = typeof input === "number" ? input
+    : typeof input === "string" && /^\s*\d\s*$/.test(input) ? Number(input.trim())
+      : NaN;
+  return Number.isInteger(n) && n >= MIN_PICK && n <= MAX_PICK ? n : null;
 }
 
 /** Classic odds-and-evens: the parity of the SUM picks the winner. */

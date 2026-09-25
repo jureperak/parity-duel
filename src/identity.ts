@@ -82,8 +82,7 @@ export function avatarColor(name: string | null | undefined): string {
 export function avatar(player: Pick<Player, "name" | "photo"> | null | undefined, size = 40): HTMLDivElement {
   const el = document.createElement("div");
   el.className = "avatar";
-  el.style.width = el.style.height = `${size}px`;
-  el.style.fontSize = `${Math.round(size * 0.4)}px`;
+  el.style.setProperty("--size", `${size}px`);
   const photo = safePhoto(player?.photo);
   if (photo) {
     const img = document.createElement("img");

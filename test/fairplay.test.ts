@@ -13,10 +13,10 @@ test("salts are 128-bit hex and unique", () => {
 
 test("commitments are deterministic and valid wire data", async () => {
   const salt = newSalt();
-  const h1 = await commitHash(3, "even", 42, salt);
-  assert.equal(h1, await commitHash(3, "even", 42, salt));
+  const h1 = await commitHash(3, "even", 4, salt);
+  assert.equal(h1, await commitHash(3, "even", 4, salt));
   assert.ok(asCommit({ round: 3, hash: h1 }), "hash passes the wire validator");
-  assert.ok(asReveal({ round: 3, value: 42, salt }), "salt passes the wire validator");
+  assert.ok(asReveal({ round: 3, value: 4, salt }), "salt passes the wire validator");
 });
 
 test("a commitment binds value, salt, round and side", async () => {

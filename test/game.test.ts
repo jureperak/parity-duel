@@ -16,12 +16,14 @@ const round = (over: Partial<Round> = {}): Round =>
   ({ seats: seated, commits: committed, reveals: revealed, round: 1, ...over });
 const both: Verdicts = { even: true, odd: true };
 
-test("parsePick accepts positive whole numbers only", () => {
-  assert.equal(parsePick("7"), 7);
-  assert.equal(parsePick(" 42 "), 42);
-  assert.equal(parsePick("999999999"), 999999999);
-  for (const bad of ["", "0", "-3", "2.5", "1e3", "abc", "1234567890", null, undefined]) {
-    assert.equal(parsePick(bad), null, `rejects ${bad}`);
+test("parsePick accepts single digits 0-9 only", () => {
+  for (let d = 0; d <= 9; d++) {
+    assert.equal(parsePick(d), d);
+    assert.equal(parsePick(String(d)), d);
+  }
+  assert.equal(parsePick(" 7 "), 7);
+  for (const bad of ["", "10", "-1", "2.5", "1e0", "abc", "٣", 10, -1, 2.5, NaN, null, undefined]) {
+    assert.equal(parsePick(bad), null, `rejects ${String(bad)}`);
   }
 });
 
@@ -76,6 +78,8 @@ test("remote data is validated before use", () => {
   assert.equal(asCommit(null), undefined);
 
   assert.deepEqual(asReveal({ round: 2, value: 5, salt: SALT }), { round: 2, value: 5, salt: SALT });
+  assert.deepEqual(asReveal({ round: 2, value: 0, salt: SALT }), { round: 2, value: 0, salt: SALT }, "0 is a valid pick");
+  assert.equal(asReveal({ round: 2, value: 12, salt: SALT }), undefined, "no multi-digit picks");
   assert.equal(asReveal({ round: 2, value: -5, salt: SALT }), undefined);
   assert.equal(asReveal({ round: 2, value: 5, salt: "short" }), undefined);
 

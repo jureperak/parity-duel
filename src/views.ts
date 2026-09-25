@@ -2,13 +2,15 @@
 // local UI state is the number being typed and the nickname field.
 import { h, cap } from "./dom.ts";
 import type { Child } from "./dom.ts";
-import { SIDES, other, parsePick, badgeIndex, winnerOf } from "./game.ts";
+import { SIDES, other, parsePick, badgeIndex, winnerOf, MIN_PICK, MAX_PICK } from "./game.ts";
 import type { Side, Round, Outcome } from "./game.ts";
 import { WIN_BADGES, LOSE_BADGES, fill } from "./badges.ts";
 import type { Badge, BadgeVars } from "./badges.ts";
 import { avatar } from "./identity.ts";
 import type { GameStore } from "./store.ts";
 import type { ConnectionStatus } from "./sync.ts";
+import { shareBadge, NO_CAPTURE } from "./share.ts";
+import type { ShareResult } from "./share.ts";
 
 export interface ViewContext {
   store: GameStore;
@@ -20,10 +22,30 @@ export interface ViewContext {
   onNewGame?: () => void;
 }
 
-let draft = "";
+let draft: number | null = null; // digit selected but not locked in yet
 let renameTimer: ReturnType<typeof setTimeout> | undefined;
 
+let lastSignature = "";
+
+/**
+ * Everything the game screen depends on. Presence is re-checked on a timer, so
+ * most calls change nothing; skipping those keeps animations from replaying and
+ * buttons from being swapped out mid-click.
+ */
+function signature(ctx: ViewContext): string {
+  const { store } = ctx;
+  const r = store.snapshot();
+  return JSON.stringify([
+    r, store.outcome(r), store.myPendingPick(r), store.mySide(r),
+    store.isOnline(r.seats.even), store.isOnline(r.seats.odd), ctx.status, !!ctx.inviteUrl,
+  ]);
+}
+
 export function renderGame(root: HTMLElement, ctx: ViewContext): void {
+  const sig = signature(ctx);
+  if (sig === lastSignature && root.hasChildNodes()) return;
+  lastSignature = sig;
+
   // Remote updates rebuild the page; keep the caret where the user was typing.
   const active = document.activeElement;
   const focus = active instanceof HTMLInputElement && active.id
@@ -161,38 +183,53 @@ function pickingView(r: Round, mySide: Side | null, store: GameStore): HTMLEleme
       opponentGone, chips);
   }
 
-  const button = h("button", { type: "submit", disabled: parsePick(draft) === null }, "Lock in");
-  const error = h("p", { class: "error", hidden: !draft || parsePick(draft) !== null },
-    "Whole numbers from 1 up, max 9 digits.");
+  const lock = h("button", { type: "submit", class: "lock", disabled: draft === null }, "Lock in");
+  const digits = Array.from({ length: MAX_PICK - MIN_PICK + 1 }, (_, i) => {
+    const d = MIN_PICK + i;
+    const b = h("button", {
+      type: "button", class: "digit", role: "radio", "data-digit": d,
+      "aria-checked": draft === d ? "true" : "false",
+      onclick: () => select(d),
+    }, d);
+    return b;
+  });
+  // Selecting updates the pad in place, so a re-render isn't needed (or lost).
+  function select(d: number): void {
+    draft = d;
+    for (const b of digits) b.setAttribute("aria-checked", b.dataset.digit === String(d) ? "true" : "false");
+    lock.disabled = false;
+  }
   const submit = (e: Event) => {
     e.preventDefault();
     const n = parsePick(draft);
     if (n === null) return;
-    button.disabled = true;
-    draft = "";
+    lock.disabled = true;
+    draft = null;
     store.lockIn(n).catch((err: unknown) => {
       console.error("Lock in failed", err);
-      button.disabled = false;
+      lock.disabled = false;
     });
   };
-  return h("form", { class: "panel", onsubmit: submit },
-    h("p", {}, `You're ${cap(mySide)}. Pick any positive number:`),
-    h("div", { class: "pick-row" },
-      h("input", {
-        id: "pick", inputmode: "numeric", autocomplete: "off", placeholder: "e.g. 7", value: draft,
-        "aria-label": "Your number",
-        oninput: (e: Event) => {
-          draft = (e.target as HTMLInputElement).value;
-          const ok = parsePick(draft) !== null;
-          button.disabled = !ok;
-          error.hidden = !draft || ok;
-        },
-      }),
-      button),
-    error,
+  return h("form", { class: "panel picking", onsubmit: submit },
+    h("p", { id: "pick-label" }, `You're ${cap(mySide)}. Pick a number:`),
+    h("div", { class: "digit-pad", role: "radiogroup", "aria-labelledby": "pick-label" }, digits),
+    lock,
     opponentGone,
     chips);
 }
+
+// Desktop shortcut: number keys pick, Enter locks in.
+window.addEventListener("keydown", e => {
+  if (e.target instanceof HTMLInputElement || e.ctrlKey || e.metaKey || e.altKey) return;
+  const pad = document.querySelector(".digit-pad");
+  if (!pad) return;
+  if (/^[0-9]$/.test(e.key)) {
+    pad.querySelector<HTMLButtonElement>(`[data-digit="${e.key}"]`)?.click();
+  } else if (e.key === "Enter") {
+    const lock = document.querySelector<HTMLButtonElement>(".picking .lock");
+    if (lock && !lock.disabled) { e.preventDefault(); lock.click(); }
+  }
+});
 
 function medalArt(badge: Badge): HTMLElement {
   const el = h("div", { class: "medal" });
@@ -229,7 +266,7 @@ function resultView(r: Round, o: Decided, mySide: Side | null, store: GameStore)
       h("div", { class: "sum sum-word" }, "Forfeit"),
       h("span", { class: `tag ${winner}` }, `${cap(winner)} wins`));
 
-  return h("div", { class: `panel reveal ${iLost ? "lost" : "won"}` },
+  const card: HTMLDivElement = h("div", { class: `panel reveal ${iLost ? "lost" : "won"}` },
     mySide === winner ? confetti() : null,
     math,
     h("div", { class: "badge" },
@@ -244,18 +281,45 @@ function resultView(r: Round, o: Decided, mySide: Side | null, store: GameStore)
       h("div", {},
         h("div", { class: "consolation-title" }, `Your badge: ${fill(loseBadge.title, vars)}`),
         h("p", { class: "badge-msg" }, fill(loseBadge.message, vars)))) : null,
+    copyBadgeButton(() => card, `even-or-odd-round-${r.round}.png`),
     mySide ? roundActions(store) : null);
+  return card;
+}
+
+const SHARE_LABELS: Record<ShareResult, string> = {
+  copied: "Copied ✓ Paste it in a chat",
+  shared: "Shared ✓",
+  downloaded: "Saved as image ✓",
+};
+
+function copyBadgeButton(card: () => HTMLElement, fileName: string): HTMLElement {
+  const label = "Copy badge";
+  const button = h("button", { type: "button", class: `secondary copy-badge ${NO_CAPTURE}` }, label);
+  button.addEventListener("click", () => {
+    button.disabled = true;
+    button.textContent = "Copying…";
+    shareBadge(card(), fileName)
+      .then(result => { button.textContent = SHARE_LABELS[result]; })
+      .catch((err: unknown) => {
+        console.error("Copy badge failed", err);
+        button.textContent = "Couldn't copy. Try again";
+      })
+      .finally(() => {
+        setTimeout(() => { button.textContent = label; button.disabled = false; }, 2500);
+      });
+  });
+  return button;
 }
 
 function roundActions(store: GameStore): HTMLElement {
-  return h("div", { class: "actions" },
+  return h("div", { class: `actions ${NO_CAPTURE}` },
     h("button", { onclick: () => store.nextRound() }, "Play again"),
     h("button", { class: "secondary", onclick: () => store.swapSides() }, "Swap sides"));
 }
 
 function confetti(): HTMLElement {
   const colors = ["#ff4a2b", "#ff7a3d", "#e02a73", "#8a3dff", "#b67bff", "#ffd35c"];
-  return h("div", { class: "confetti", "aria-hidden": "true" },
+  return h("div", { class: `confetti ${NO_CAPTURE}`, "aria-hidden": "true" },
     Array.from({ length: 36 }, (_, i) => {
       const s = h("i");
       s.style.left = `${(i * 97) % 100}%`;
@@ -303,11 +367,11 @@ export function renderStart(root: HTMLElement, onNewGame: () => void): void {
   root.replaceChildren(
     h("header", {}, h("h1", {}, "Even or Odd")),
     h("div", { class: "panel landing" },
-      h("p", { class: "big" }, "A two-player duel. Pick a side, lock in a secret number, and let the sum decide."),
+      h("p", { class: "big" }, "A two-player duel. Choose a side, secretly pick a number from 0 to 9, and let the sum decide."),
       h("ol", { class: "steps" },
         h("li", {}, "Start a game and send the invite link to a friend."),
         h("li", {}, "One of you takes Even, the other Odd."),
-        h("li", {}, "Both lock in a number. An even sum means Even wins.")),
+        h("li", {}, "Both secretly pick 0–9. An even sum means Even wins.")),
       h("button", { class: "cta", onclick: onNewGame }, "New game"),
       h("p", { class: "fine" },
         "The game runs directly between your browsers. Numbers stay sealed until both players have locked in.")));
