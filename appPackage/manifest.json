@@ -1,0 +1,62 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.17",
+  "version": "2.0.0",
+  "id": "322dfafd-a8b2-4210-8cad-a09f58062596",
+  "developer": {
+    "name": "Jure Perak",
+    "websiteUrl": "https://github.com/jureperak/parity-duel",
+    "privacyUrl": "https://jureperak.github.io/parity-duel/privacy.html",
+    "termsOfUseUrl": "https://jureperak.github.io/parity-duel/terms.html"
+  },
+  "name": {
+    "short": "Even or Odd",
+    "full": "Even or Odd - two-player meeting game"
+  },
+  "description": {
+    "short": "Two players, one secret number each. The sum decides who wins.",
+    "full": "A two-player odds-and-evens game for Teams meetings. One player takes Even, the other Odd. Both pick a secret positive number; when both are locked in, the sum is revealed and the winner gets a badge. Everyone else in the meeting can watch."
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "accentColor": "#8A3DFF",
+  "configurableTabs": [
+    {
+      "configurationUrl": "https://jureperak.github.io/parity-duel/index.html?inTeams=1",
+      "canUpdateConfiguration": false,
+      "scopes": [
+        "groupChat"
+      ],
+      "context": [
+        "meetingSidePanel",
+        "meetingStage"
+      ]
+    }
+  ],
+  "permissions": [
+    "identity"
+  ],
+  "validDomains": [
+    "jureperak.github.io"
+  ],
+  "authorization": {
+    "permissions": {
+      "resourceSpecific": [
+        {
+          "name": "MeetingStage.Write.Chat",
+          "type": "Delegated"
+        },
+        {
+          "name": "LiveShareSession.ReadWrite.Chat",
+          "type": "Delegated"
+        },
+        {
+          "name": "LiveShareSession.ReadWrite.Group",
+          "type": "Delegated"
+        }
+      ]
+    }
+  }
+}

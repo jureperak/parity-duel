@@ -1,0 +1,25 @@
+{
+  "name": "teams-even-odd",
+  "private": true,
+  "version": "2.0.0",
+  "type": "module",
+  "scripts": {
+    "sync-server": "azure-local-service",
+    "dev": "vite",
+    "build": "vite build",
+    "package": "powershell -NoProfile -Command \"Compress-Archive appPackage/* even-odd.zip -Force\"",
+    "test": "node --test \"test/**/*.test.js\""
+  },
+  "dependencies": {
+    "@azure/msal-browser": "^5.23.0",
+    "@fluidframework/azure-client": "^1.2.0",
+    "@microsoft/live-share": "^1.4.2",
+    "@microsoft/teams-js": "^2.57.0",
+    "fluid-framework": "^1.4.0"
+  },
+  "devDependencies": {
+    "@fluidframework/azure-local-service": "^1.2.0",
+    "@fluidframework/test-client-utils": "^1.4.0",
+    "vite": "^8.3.1"
+  }
+}
