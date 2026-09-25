@@ -1,0 +1,4 @@
+node_modules/
+dist/
+even-odd.zip
+.env
