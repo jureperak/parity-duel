@@ -12,12 +12,38 @@ State is synced with the [Live Share SDK](https://aka.ms/livesharedocs) (Fluid
 Framework), so there's no game server to run — Teams provides the relay inside meetings.
 
 ```
-index.html, src/main.js   UI + Live Share wiring
-src/game.js               pure rules (tested in test/game.test.js)
-src/badges.js             badge art, titles and messages
-src/identity.js           Teams name, profile photo, avatars
-appPackage/               Teams manifest + icons
+src/main.ts       startup: Teams, local test, or public landing page
+src/game.ts       pure rules, types and validation of remote data
+src/fairplay.ts   commit–reveal hashing (Web Crypto SHA-256)
+src/store.ts      shared state, auto-reveal, verification, presence
+src/session.ts    the only module that knows which sync service is used
+src/views.ts      rendering
+src/teams.ts      Teams SDK: context, theme, config page, meeting stage
+src/identity.ts   Teams name, profile photo, avatars
+src/badges.ts     badge art, titles and messages
+appPackage/       Teams manifest + icons
 ```
+
+### Fair play
+
+Picks use **commit–reveal**. Locking in publishes only
+`SHA-256("even-odd:v1:<round>:<side>:<number>:<128-bit salt>")`. Once both
+players have committed, each client reveals its number and salt, and every
+client verifies the reveal against the commitment. So nobody can see the
+other's number early (not even in dev tools), and nobody can change theirs
+after seeing the opponent's.
+
+- A reveal that doesn't match its commitment **forfeits** the round.
+- Not revealing within 15 s of both commitments (e.g. closing the tab to dodge
+  a loss) **forfeits** the round. If neither side reveals, the round is void.
+- Players who leave are detected via Live Share presence; their side can be
+  taken over, which starts a fresh round.
+
+### Quality gates
+
+`npm run check` = type check (strict TypeScript) + ESLint (type-aware) + tests.
+CI runs it before every deploy. Dependabot keeps dependencies current; majors of
+Live Share / Fluid are excluded because they must be migrated together.
 
 ## Play it locally (two browser tabs)
 
