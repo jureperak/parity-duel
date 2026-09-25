@@ -6,9 +6,10 @@ Classic odds-and-evens, live in a Teams meeting:
 2. Both secretly tap a number from **0 to 9** and click **Lock in**.
 3. When both are in, the numbers are revealed. The **sum** decides the winner:
    even sum → Even wins, odd sum → Odd wins.
-4. The winner gets a badge, the loser a consolation badge. **Copy badge** puts the result
-   card on the clipboard as an image, ready to paste into a chat (phones get the share
-   sheet instead). **Play again** or **Swap sides**.
+4. The winner gets a badge, the loser a consolation badge. Share the result card as an
+   image: **Share badge** on phones opens the share sheet (straight to WhatsApp, Teams…;
+   most mobile chat apps can't paste images), **Copy badge** on computers puts it on the
+   clipboard for Ctrl+V. **Play again** or **Swap sides**.
 
 State is synced with the [Live Share SDK](https://aka.ms/livesharedocs) (Fluid
 Framework), so there's no game server to run — Teams provides the relay inside meetings.

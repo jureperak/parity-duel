@@ -9,7 +9,7 @@ import type { Badge, BadgeVars } from "./badges.ts";
 import { avatar } from "./identity.ts";
 import type { GameStore } from "./store.ts";
 import type { ConnectionStatus } from "./sync.ts";
-import { shareBadge, NO_CAPTURE } from "./share.ts";
+import { shareBadge, prepareBadge, isTouchDevice, NO_CAPTURE } from "./share.ts";
 import type { ShareResult } from "./share.ts";
 
 export interface ViewContext {
@@ -281,31 +281,37 @@ function resultView(r: Round, o: Decided, mySide: Side | null, store: GameStore)
       h("div", {},
         h("div", { class: "consolation-title" }, `Your badge: ${fill(loseBadge.title, vars)}`),
         h("p", { class: "badge-msg" }, fill(loseBadge.message, vars)))) : null,
-    copyBadgeButton(() => card, `even-or-odd-round-${r.round}.png`),
+    shareBadgeButton(() => card, JSON.stringify([r.round, o, mySide]), `even-or-odd-round-${r.round}.png`),
     mySide ? roundActions(store) : null);
+  // The image is prepared in the background so a tap can share it instantly (see share.ts).
+  prepareBadge(JSON.stringify([r.round, o, mySide]), card);
   return card;
 }
 
-const SHARE_LABELS: Record<ShareResult, string> = {
+const SHARE_LABELS: Record<ShareResult, string | null> = {
   copied: "Copied ✓ Paste it in a chat",
   shared: "Shared ✓",
+  cancelled: null, // closed the share sheet: just reset
   downloaded: "Saved as image ✓",
 };
 
-function copyBadgeButton(card: () => HTMLElement, fileName: string): HTMLElement {
-  const label = "Copy badge";
+function shareBadgeButton(card: () => HTMLElement, key: string, fileName: string): HTMLElement {
+  const label = isTouchDevice() ? "Share badge" : "Copy badge";
   const button = h("button", { type: "button", class: `secondary copy-badge ${NO_CAPTURE}` }, label);
+  const reset = (): void => { button.textContent = label; button.disabled = false; };
   button.addEventListener("click", () => {
     button.disabled = true;
-    button.textContent = "Copying…";
-    shareBadge(card(), fileName)
-      .then(result => { button.textContent = SHARE_LABELS[result]; })
-      .catch((err: unknown) => {
-        console.error("Copy badge failed", err);
-        button.textContent = "Couldn't copy. Try again";
+    shareBadge(key, card(), fileName)
+      .then(result => {
+        const done = SHARE_LABELS[result];
+        if (!done) return reset();
+        button.textContent = done;
+        setTimeout(reset, 2500);
       })
-      .finally(() => {
-        setTimeout(() => { button.textContent = label; button.disabled = false; }, 2500);
+      .catch((err: unknown) => {
+        console.error("Sharing the badge failed", err);
+        button.textContent = "Couldn't share. Try again";
+        setTimeout(reset, 2500);
       });
   });
   return button;
