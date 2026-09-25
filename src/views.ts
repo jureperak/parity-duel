@@ -8,13 +8,16 @@ import { WIN_BADGES, LOSE_BADGES, fill } from "./badges.ts";
 import type { Badge, BadgeVars } from "./badges.ts";
 import { avatar } from "./identity.ts";
 import type { GameStore } from "./store.ts";
+import type { ConnectionStatus } from "./sync.ts";
 
 export interface ViewContext {
   store: GameStore;
-  connected: boolean;
-  localTest: boolean;
+  status: ConnectionStatus;
+  /** Link that lets someone else join this game (browser games only). */
+  inviteUrl?: string;
   /** Present only in the Teams side panel. */
   onShareToStage?: () => void;
+  onNewGame?: () => void;
 }
 
 let draft = "";
@@ -32,7 +35,7 @@ export function renderGame(root: HTMLElement, ctx: ViewContext): void {
   const outcome = store.outcome(r);
   const mySide = store.mySide(r);
 
-  const banner = ctx.connected ? [] : [h("div", { class: "banner", role: "alert" }, "Connection lost. Reconnecting…")];
+  const banner = ctx.status === "connected" ? [] : [statusBanner(ctx)];
   root.replaceChildren(
     ...banner,
     h("header", {}, h("h1", {}, "Even or Odd"), h("span", { class: "round" }, `Round ${r.round}`)),
@@ -50,6 +53,15 @@ export function renderGame(root: HTMLElement, ctx: ViewContext): void {
 }
 
 // ---------- header pieces ----------
+
+function statusBanner(ctx: ViewContext): HTMLElement {
+  if (ctx.status === "host-left") {
+    return h("div", { class: "banner", role: "alert" },
+      h("p", {}, "The host has left, so this game can't continue. It resumes if they come back."),
+      ctx.onNewGame ? h("button", { onclick: ctx.onNewGame }, "Start a new game") : null);
+  }
+  return h("div", { class: "banner", role: "alert" }, "Connection lost. Reconnecting…");
+}
 
 function nameBar(store: GameStore): HTMLElement {
   const { me } = store;
@@ -258,13 +270,26 @@ function footer(r: Round, ctx: ViewContext): HTMLElement {
   if (ctx.onShareToStage) {
     items.push(h("button", { class: "link", onclick: ctx.onShareToStage }, "Show on meeting stage"));
   }
-  if (ctx.localTest) {
-    items.push(h("span", { class: "muted" }, "Local test: open this exact URL in a second tab to join."));
-  }
-  if (r.seats.even || r.seats.odd) {
+  if (ctx.inviteUrl) items.push(inviteButton(ctx.inviteUrl));
+  if (ctx.store.mySide(r)) {
     items.push(h("button", { class: "link", onclick: () => ctx.store.reset() }, "Reset game"));
   }
   return h("footer", {}, items);
+}
+
+function inviteButton(url: string): HTMLElement {
+  const button = h("button", { class: "secondary invite" }, "Copy invite link");
+  button.addEventListener("click", () => {
+    const done = (label: string): void => {
+      button.textContent = label;
+      setTimeout(() => { button.textContent = "Copy invite link"; }, 2000);
+    };
+    navigator.clipboard.writeText(url).then(() => done("Link copied ✓"), () => {
+      // Clipboard can be blocked (e.g. inside iframes): show the link so it can be copied by hand.
+      window.prompt("Copy this link and send it to your opponent:", url);
+    });
+  });
+  return button;
 }
 
 // ---------- screens outside the game ----------
@@ -273,16 +298,17 @@ export function renderMessage(root: HTMLElement, title: string, ...lines: Child[
   root.replaceChildren(h("div", { class: "panel" }, h("h1", {}, title), lines.map(l => h("p", { class: "muted" }, l))));
 }
 
-/** Shown when the public site is opened outside Teams. */
-export function renderLanding(root: HTMLElement): void {
+/** First screen in the browser: start a game, then share the link. */
+export function renderStart(root: HTMLElement, onNewGame: () => void): void {
   root.replaceChildren(
     h("header", {}, h("h1", {}, "Even or Odd")),
     h("div", { class: "panel landing" },
-      h("p", { class: "big" }, "A two-player duel for Microsoft Teams meetings."),
+      h("p", { class: "big" }, "A two-player duel. Pick a side, lock in a secret number, and let the sum decide."),
       h("ol", { class: "steps" },
-        h("li", {}, "One player takes Even, the other Odd."),
-        h("li", {}, "Both lock in a secret number."),
-        h("li", {}, "The sum decides: an even sum means Even wins.")),
-      h("p", { class: "muted" }, "It runs inside a Teams meeting, so open it from the meeting's Apps menu to play."),
-      h("a", { class: "button-link", href: "https://github.com/jureperak/parity-duel" }, "View on GitHub")));
+        h("li", {}, "Start a game and send the invite link to a friend."),
+        h("li", {}, "One of you takes Even, the other Odd."),
+        h("li", {}, "Both lock in a number. An even sum means Even wins.")),
+      h("button", { class: "cta", onclick: onNewGame }, "New game"),
+      h("p", { class: "fine" },
+        "The game runs directly between your browsers. Numbers stay sealed until both players have locked in.")));
 }

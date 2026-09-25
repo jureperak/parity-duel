@@ -1,23 +1,19 @@
-// Shared game state on a Fluid SharedMap, plus everything the UI needs to know
-// about it: validated snapshots, fair-play verification, and who is online.
+// Game state on top of any sync backend (see sync.ts), plus everything the UI
+// needs to know about it: validated snapshots, fair-play verification, and who
+// is online. Every action is sent as one atomic batch of operations.
 //
-// Keys in the map:
+// Keys:
 //   seat:<side>    Player          who sits on Even / Odd
 //   commit:<side>  Commit          hash of this round's pick
 //   reveal:<side>  Reveal          the pick itself, published after both commits
 //   round          number          current round, starts at 1
-import type { SharedMap } from "fluid-framework";
-import type { LivePresence } from "@microsoft/live-share";
-import { PresenceState } from "@microsoft/live-share";
 import {
   SIDES, seatOf, asCommit, asReveal, asPlayer, resolveRound, REVEAL_TIMEOUT_MS,
 } from "./game.ts";
 import type { Side, Player, Round, Outcome, Verdicts, Commit, Reveal } from "./game.ts";
 import { newSalt, commitHash, verifyReveal } from "./fairplay.ts";
-
-export interface PresenceData {
-  playerId: string;
-}
+import type { Op } from "./protocol.ts";
+import type { SharedState, Presence } from "./sync.ts";
 
 export interface Me {
   id: string;
@@ -36,51 +32,46 @@ interface Secret {
 }
 
 const SECRET_KEY = "eo-secret";
-/** Presence needs a moment after joining before "not seen" can safely mean "offline". */
-const PRESENCE_SETTLE_MS = 5_000;
-/**
- * Live Share works out "offline" lazily when presence is read and emits no event
- * when someone times out, so re-check on a timer to notice players who left.
- */
-const PRESENCE_RECHECK_MS = 5_000;
 
 export class GameStore {
   private verdicts = new Map<string, boolean>();
   private checking = new Set<string>();
   private bothCommittedSince = new Map<string, number>();
   private revealTimer: ReturnType<typeof setTimeout> | undefined;
-  private presenceSettled = false;
   private secret: Secret | null = loadSecret();
+  /** The reveal already sent, so it isn't re-sent while it travels to the host. */
+  private revealSent: string | null = null;
 
-  private readonly map: SharedMap;
-  private readonly presence: LivePresence<PresenceData>;
+  private readonly state: SharedState;
+  private readonly presence: Presence;
   readonly me: Me;
   private readonly onChange: () => void;
 
-  constructor(map: SharedMap, presence: LivePresence<PresenceData>, me: Me, onChange: () => void) {
-    this.map = map;
+  constructor(state: SharedState, presence: Presence, me: Me, onChange: () => void) {
+    this.state = state;
     this.presence = presence;
     this.me = me;
     this.onChange = onChange;
   }
 
-  /** Call once after the presence object is initialized. */
   start(): void {
-    this.map.on("valueChanged", () => this.changed());
-    this.presence.on("presenceChanged", () => this.onChange());
-    setTimeout(() => { this.presenceSettled = true; this.onChange(); }, PRESENCE_SETTLE_MS);
-    setInterval(() => this.onChange(), PRESENCE_RECHECK_MS);
+    this.state.subscribe(() => this.changed());
+    this.presence.subscribe(() => this.onChange());
     this.changed();
   }
 
   // ---------- reading ----------
 
   snapshot(): Round {
-    const seats = { even: asPlayer(this.map.get("seat:even")), odd: asPlayer(this.map.get("seat:odd")) };
-    const commits = { even: asCommit(this.map.get("commit:even")), odd: asCommit(this.map.get("commit:odd")) };
-    const reveals = { even: asReveal(this.map.get("reveal:even")), odd: asReveal(this.map.get("reveal:odd")) };
-    const round = this.map.get<number>("round");
-    return { seats, commits, reveals, round: Number.isInteger(round) && round! > 0 ? round! : 1 };
+    const get = (k: string): unknown => this.state.get(k);
+    const seats = { even: asPlayer(get("seat:even")), odd: asPlayer(get("seat:odd")) };
+    const commits = { even: asCommit(get("commit:even")), odd: asCommit(get("commit:odd")) };
+    const reveals = { even: asReveal(get("reveal:even")), odd: asReveal(get("reveal:odd")) };
+    const round = get("round");
+    return {
+      seats, commits, reveals,
+      round: typeof round === "number" && Number.isInteger(round) && round > 0 ? round : 1,
+    };
   }
 
   outcome(r: Round = this.snapshot()): Outcome {
@@ -106,18 +97,8 @@ export class GameStore {
   /** False only when we're confident the seated player has left. */
   isOnline(player: Player | undefined): boolean {
     if (!player) return false;
-    if (player.id === this.me.id || !this.presenceSettled) return true;
-    return this.onlinePlayerIds().has(player.id);
-  }
-
-  private onlinePlayerIds(): Set<string> {
-    const ids = new Set<string>();
-    for (const user of this.presence.getUsers(PresenceState.online)) {
-      for (const c of user.getConnections(PresenceState.online)) {
-        if (c.data?.playerId) ids.add(c.data.playerId);
-      }
-    }
-    return ids;
+    if (player.id === this.me.id || !this.presence.settled()) return true;
+    return this.presence.onlinePlayerIds().has(player.id);
   }
 
   // ---------- actions ----------
@@ -128,15 +109,16 @@ export class GameStore {
     const current = r.seats[side];
     if (current && current.id !== this.me.id && this.isOnline(current)) return;
     if (this.mySide(r)) return;
-    this.map.set(`seat:${side}`, this.seatData(side));
+    const ops: Op[] = [{ key: `seat:${side}`, value: this.seatData(side) }];
     // A new player starts a fresh round, so nobody inherits a half-played one.
-    if (current) this.map.set("round", r.round + 1);
+    if (current) ops.push({ key: "round", value: r.round + 1 });
+    this.state.apply(ops);
   }
 
   leave(): void {
     const side = this.mySide();
     if (!side) return;
-    for (const k of [`seat:${side}`, `commit:${side}`, `reveal:${side}`]) this.map.delete(k);
+    this.state.apply([`seat:${side}`, `commit:${side}`, `reveal:${side}`].map(key => ({ key, delete: true as const })));
     this.setSecret(null);
   }
 
@@ -147,30 +129,33 @@ export class GameStore {
     const salt = newSalt();
     const hash = await commitHash(r.round, side, value, salt);
     this.setSecret({ round: r.round, side, value, salt, hash });
-    this.map.set(`commit:${side}`, { round: r.round, hash } satisfies Commit);
+    this.state.apply([{ key: `commit:${side}`, value: { round: r.round, hash } satisfies Commit }]);
   }
 
   nextRound(): void {
-    this.map.set("round", this.snapshot().round + 1);
+    this.state.apply([{ key: "round", value: this.snapshot().round + 1 }]);
   }
 
   swapSides(): void {
     const r = this.snapshot();
-    this.map.set("seat:even", r.seats.odd);
-    this.map.set("seat:odd", r.seats.even);
-    this.map.set("round", r.round + 1);
+    this.state.apply([
+      { key: "seat:even", value: r.seats.odd },
+      { key: "seat:odd", value: r.seats.even },
+      { key: "round", value: r.round + 1 },
+    ]);
   }
 
   reset(): void {
-    for (const s of SIDES) for (const k of ["seat", "commit", "reveal"]) this.map.delete(`${k}:${s}`);
-    this.map.set("round", 1);
+    const clear: Op[] = SIDES.flatMap(s =>
+      ["seat", "commit", "reveal"].map(k => ({ key: `${k}:${s}`, delete: true as const })));
+    this.state.apply([...clear, { key: "round", value: 1 }]);
     this.setSecret(null);
   }
 
   /** Re-publish my seat after my name or photo changed. */
   refreshMySeat(): void {
     const side = this.mySide();
-    if (side) this.map.set(`seat:${side}`, this.seatData(side));
+    if (side) this.state.apply([{ key: `seat:${side}`, value: this.seatData(side) }]);
   }
 
   // ---------- internals ----------
@@ -194,7 +179,9 @@ export class GameStore {
     if (!side || !s || s.side !== side || s.round !== r.round) return;
     if (!SIDES.every(x => r.commits[x]?.round === r.round)) return;
     if (r.commits[side]?.hash !== s.hash || r.reveals[side]?.round === r.round) return;
-    this.map.set(`reveal:${side}`, { round: s.round, value: s.value, salt: s.salt } satisfies Reveal);
+    if (this.revealSent === s.hash) return;
+    this.revealSent = s.hash;
+    this.state.apply([{ key: `reveal:${side}`, value: { round: s.round, value: s.value, salt: s.salt } satisfies Reveal }]);
   }
 
   /** Check each reveal against its commitment (async), then re-render with the verdict. */

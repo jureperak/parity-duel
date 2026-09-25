@@ -1,0 +1,25 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      dev-tooling:
+        dependency-type: development
+    ignore:
+      # Live Share 1.x requires Fluid Framework 1.x; majors must be migrated together, by hand.
+      - dependency-name: "@microsoft/live-share"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "fluid-framework"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@fluidframework/*"
+        update-types: ["version-update:semver-major"]
+      # typescript-eslint supports TypeScript < 6.1; raise together.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

@@ -45,6 +45,24 @@ after seeing the opponent's.
 CI runs it before every deploy. Dependabot keeps dependencies current; majors of
 Live Share / Fluid are excluded because they must be migrated together.
 
+## Play in a browser (peer-to-peer)
+
+Outside Teams the game runs **directly between browsers** with WebRTC (PeerJS).
+Click **New game**, send the invite link, and your friend joins from any device.
+
+- The creator's browser is the **host**: it keeps the game state and referees
+  every guest action (`src/protocol.ts`), so a tampered guest can't move other
+  players or commit for them. Guests reconnect automatically; the host can
+  reload without losing the game.
+- The public PeerJS server only introduces the browsers. To use your own, set
+  `VITE_PEERJS_HOST` (+ `_PORT`, `_PATH`, `_SECURE`).
+- **A TURN relay is needed for strict networks** (mobile carriers, some home
+  routers, company networks). PeerJS's bundled relays no longer exist, so
+  configure one: `VITE_TURN_URLS` (comma-separated `turn:`/`turns:` URLs),
+  `VITE_TURN_USERNAME`, `VITE_TURN_CREDENTIAL`. Without it, only players whose
+  networks allow direct connections can play.
+- `VITE_PEERJS_DEBUG=3` logs every connection step.
+
 ## Play it locally (two browser tabs)
 
 ```bash

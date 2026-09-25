@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { newSalt, commitHash, verifyReveal } from "../src/fairplay.ts";
 import { asCommit, asReveal } from "../src/game.ts";
 import { isLocalHost } from "../src/env.ts";
+import { iceServers } from "../src/ice.ts";
 
 test("salts are 128-bit hex and unique", () => {
   const a = newSalt(), b = newSalt();
@@ -32,4 +33,11 @@ test("a commitment binds value, salt, round and side", async () => {
 test("local test mode only on the developer's machine", () => {
   for (const host of ["localhost", "127.0.0.1", "[::1]"]) assert.equal(isLocalHost(host), true, host);
   for (const host of ["jureperak.github.io", "localhost.evil.com", "192.168.1.5"]) assert.equal(isLocalHost(host), false, host);
+});
+
+test("ICE servers: STUN always, TURN only when configured", () => {
+  assert.equal(iceServers({}).length, 1);
+  assert.equal(iceServers({ VITE_TURN_URLS: " , " }).length, 1, "blank config adds no relay");
+  const withTurn = iceServers({ VITE_TURN_URLS: "turn:a:3478, turns:a:443", VITE_TURN_USERNAME: "u", VITE_TURN_CREDENTIAL: "c" });
+  assert.deepEqual(withTurn[1], { urls: ["turn:a:3478", "turns:a:443"], username: "u", credential: "c" });
 });
